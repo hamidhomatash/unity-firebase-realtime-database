@@ -33,6 +33,20 @@ public class ExampleScene : MonoBehaviour
     {
         switch (name)
         {
+            case "auth":
+                FirebaseAuth.Instance.SignInAnonymously(10, (res) =>
+                {
+                    if (res.success)
+                    {
+                        Debug.Log("Access token uid: " + res.data.UId);
+                    }
+                    else
+                    {
+                        Debug.Log("Signed Failed");
+                    }
+                });
+                break;
+
             case "save":
                 if (string.IsNullOrEmpty(pathIF.text) ||
                     string.IsNullOrEmpty(dataIF.text)) return;
@@ -46,25 +60,37 @@ public class ExampleScene : MonoBehaviour
                 pushRef.Push(dataIF.text, 10, (null));
                 break;
             case "listen":
-                if (string.IsNullOrEmpty(pathIF.text)) return;
-                DatabaseReference dbref = FirebaseDatabase.Instance.GetReference(pathIF.text);
-                dbref.ValueChanged += (sender, e) =>
                 {
-                    GameObject GO = null;
-                    foreach (Transform t in contentItem.transform.parent)
+                    if (string.IsNullOrEmpty(pathIF.text)) return;
+                
+                    DatabaseReference dbref = FirebaseDatabase.Instance.GetReference(pathIF.text);
+                    dbref.ValueChanged += (sender, e) =>
                     {
-                        if (t.Find("Path Text").GetComponent<Text>().text == pathIF.text)
+                        GameObject GO = null;
+                        foreach (Transform t in contentItem.transform.parent)
                         {
-                            GO = t.gameObject;
+                            if (t.Find("Path Text").GetComponent<Text>().text == pathIF.text)
+                            {
+                                GO = t.gameObject;
+                            }
                         }
-                    }
-                    if (GO == null)
-                        GO = Instantiate(contentItem, contentItem.transform.parent);
-                    GO.transform.Find("Path Text").GetComponent<Text>().text = pathIF.text;
-                    GO.transform.Find("Data Text").GetComponent<Text>().text = "";
-                    Debug.Log(e.Snapshot.GetRawJsonValue());
-                    GO.transform.Find("Data Text").GetComponent<Text>().text = e.Snapshot.GetRawJsonValue();
-                };
+                        if (GO == null)
+                            GO = Instantiate(contentItem, contentItem.transform.parent);
+                        GO.transform.Find("Path Text").GetComponent<Text>().text = pathIF.text;
+                        GO.transform.Find("Data Text").GetComponent<Text>().text = "";
+                        Debug.Log(e.Snapshot.GetRawJsonValue());
+                        GO.transform.Find("Data Text").GetComponent<Text>().text = e.Snapshot.GetRawJsonValue();
+                    };
+                }
+				break;
+            case "transaction":
+                {
+                    if (string.IsNullOrEmpty(pathIF.text) ||
+                        string.IsNullOrEmpty(dataIF.text)) return;
+
+                    DatabaseReference dbref = FirebaseDatabase.Instance.GetReference(pathIF.text);
+                    dbref.Transaction(dataIF.text, 10, null);
+                }
                 break;
             case "delete":
                 DatabaseReference deleteref = FirebaseDatabase.Instance.GetReference(pathIF.text);

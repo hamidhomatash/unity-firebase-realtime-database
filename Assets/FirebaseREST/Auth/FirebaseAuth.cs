@@ -10,6 +10,8 @@ namespace FirebaseREST
 {
     public class FirebaseAuth : MonoBehaviour
     {
+        public int DefaultTimeout { get; set; } = 10;
+
         readonly string EMAIL_AUTH_URL = "https://www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=" + FirebaseSettings.WEB_API;
         readonly string CUSTOM_TOKEN_AUTH_URL = "https://www.googleapis.com/identitytoolkit/v3/relyingparty/verifyCustomToken?key=" + FirebaseSettings.WEB_API;
         readonly string ANONYMOUS_AUTH_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=" + FirebaseSettings.WEB_API;
@@ -65,20 +67,24 @@ namespace FirebaseREST
         {
             applicationIsQuitting = true;
         }
-        
+
         public bool IsSignedIn => tokenData != null;
 
-        public void GetAccessToken(Action<string> onComplete) {
+        public void GetAccessToken(int timeout, Action<Response<TokenData>> OnComplete)
+        {
             if (tokenData == null)
-                onComplete?.Invoke(null);
-            else if (IsTokenExpired)
-                RefreshAccessToken(10, response => onComplete(response.data.IdToken));
+            {
+                OnComplete?.Invoke(new Response<TokenData>(new Dictionary<string, string>(), "No TokenData present and therefore cannot get token", false, 0));
+            }
+            else if (tokenData.IsExpired)
+            {
+                RefreshAccessToken(timeout, OnComplete);
+            }
             else
-                onComplete?.Invoke(tokenData.IdToken);
+            {
+                OnComplete?.Invoke(new Response<TokenData>(new Dictionary<string, string>(), "TokenData is not expired", true, 0, TokenData));
+            }
         }
-
-        private bool IsTokenExpired => DateTime.Now - tokenData.RefreshedAt > TimeSpan.FromSeconds(double.Parse(tokenData.ExpiresIn));
-
 
         public void FetchUserInfo(int timeout, Action<Response<List<UserData>>> OnComplete)
         {
@@ -125,12 +131,12 @@ namespace FirebaseREST
                         dataToReturn.Add(ud);
                     }
                     if (OnComplete != null)
-                        OnComplete(new Response<List<UserData>>("success", true, (int)op.webRequest.responseCode, dataToReturn));
+                        OnComplete(new Response<List<UserData>>(op.webRequest.GetResponseHeaders(), "success", true, (int)op.webRequest.responseCode, dataToReturn));
                 }
                 else
                 {
                     if (OnComplete != null)
-                        OnComplete(new Response<List<UserData>>(res.message, false, res.code, null));
+                        OnComplete(new Response<List<UserData>>(op.webRequest.GetResponseHeaders(), res.message, false, res.code, null));
                 }
             }));
         }
@@ -147,15 +153,14 @@ namespace FirebaseREST
                 if (res.success)
                 {
                     Dictionary<string, object> dataMap = Json.Deserialize(op.webRequest.downloadHandler.text) as Dictionary<string, object>;
-                    tokenData = new TokenData(dataMap["id_token"].ToString(), dataMap["refresh_token"].ToString(), 
-                        dataMap["expires_in"].ToString(), DateTime.Now);
+                    tokenData = new TokenData(dataMap["user_id"].ToString(), dataMap["id_token"].ToString(), dataMap["refresh_token"].ToString(), dataMap["expires_in"].ToString(), DateTime.Now);
                     if (OnComplete != null)
-                        OnComplete(new Response<TokenData>("success", true, (int)op.webRequest.responseCode, tokenData));
+                        OnComplete(new Response<TokenData>(op.webRequest.GetResponseHeaders(), "success", true, (int)op.webRequest.responseCode, tokenData));
                 }
                 else
                 {
                     if (OnComplete != null)
-                        OnComplete(new Response<TokenData>(res.message, false, res.code, null));
+                        OnComplete(new Response<TokenData>(op.webRequest.GetResponseHeaders(), res.message, false, res.code, null));
                 }
             }));
         }
@@ -175,13 +180,22 @@ namespace FirebaseREST
         }, timeout);
             op.completed += ((ao) => HandleFirebaseSignInResponse(op, OnComplete));
         }
-        
+
         public void SignInAnonymously(int timeout, Action<Response<TokenData>> OnComplete)
         {
             UnityWebRequestAsyncOperation op = StartRequest(ANONYMOUS_AUTH_URL, "POST", new Dictionary<string, object>(){
                     {"returnSecureToken",true}
             }, timeout);
             op.completed += ((ao) => HandleFirebaseSignInResponse(op, OnComplete));
+        }
+
+        public void SignOut(int timeout, Action<Response<TokenData>> OnComplete)
+        {
+            throw new NotImplementedException();
+            //UnityWebRequestAsyncOperation op = StartRequest(ANONYMOUS_AUTH_URL, "POST", new Dictionary<string, object>(){
+            //        {"returnSecureToken",true}
+            //}, timeout);
+            //op.completed += ((ao) => HandleFirebaseSignInResponse(op, OnComplete));
         }
 
         UnityWebRequestAsyncOperation StartRequest(string url, string requestMethod, Dictionary<string, object> data, int timeout)
@@ -200,22 +214,23 @@ namespace FirebaseREST
             if (webReqOp.webRequest.isNetworkError)
             {
                 if (OnComplete != null)
-                    OnComplete(new Response<TokenData>(webReqOp.webRequest.error, false, 0, null));
+                    OnComplete(new Response<TokenData>(webReqOp.webRequest.GetResponseHeaders(), webReqOp.webRequest.error, false, 0, null));
             }
             else if (webReqOp.webRequest.isHttpError)
             {
                 Dictionary<string, object> res = Json.Deserialize(webReqOp.webRequest.downloadHandler.text) as Dictionary<string, object>;
                 Dictionary<string, object> errorObj = Json.Deserialize(Json.Serialize(res["error"])) as Dictionary<string, object>;
                 if (OnComplete != null)
-                    OnComplete(new Response<TokenData>(errorObj["message"].ToString(), false, int.Parse(errorObj["code"].ToString()), null));
+                    OnComplete(new Response<TokenData>(webReqOp.webRequest.GetResponseHeaders(), errorObj["message"].ToString(), false, int.Parse(errorObj["code"].ToString()), null));
             }
             else
             {
                 if (OnComplete != null)
                 {
                     Dictionary<string, object> dataMap = Json.Deserialize(webReqOp.webRequest.downloadHandler.text) as Dictionary<string, object>;
-                    this.tokenData = new TokenData(dataMap["idToken"].ToString(), dataMap["refreshToken"].ToString(), dataMap["expiresIn"].ToString(), DateTime.Now);
-                    OnComplete(new Response<TokenData>("success", true, (int)webReqOp.webRequest.responseCode, tokenData));
+
+                    this.tokenData = new TokenData(dataMap["localId"].ToString(), dataMap["idToken"].ToString(), dataMap["refreshToken"].ToString(), dataMap["expiresIn"].ToString(), DateTime.Now);
+                    OnComplete(new Response<TokenData>(webReqOp.webRequest.GetResponseHeaders(), "success", true, (int)webReqOp.webRequest.responseCode, tokenData));
                 }
             }
         }
@@ -225,19 +240,19 @@ namespace FirebaseREST
             if (webReqOp.webRequest.isNetworkError)
             {
                 if (OnComplete != null)
-                    OnComplete(new Response(webReqOp.webRequest.error, false, 0, null));
+                    OnComplete(new Response(webReqOp.webRequest.GetResponseHeaders(), webReqOp.webRequest.error, false, 0, null));
             }
             else if (webReqOp.webRequest.isHttpError)
             {
                 Dictionary<string, object> res = Json.Deserialize(webReqOp.webRequest.downloadHandler.text) as Dictionary<string, object>;
                 Dictionary<string, object> errorObj = Json.Deserialize(Json.Serialize(res["error"])) as Dictionary<string, object>;
                 if (OnComplete != null)
-                    OnComplete(new Response(errorObj["message"].ToString(), false, int.Parse(errorObj["code"].ToString()), null));
+                    OnComplete(new Response(webReqOp.webRequest.GetResponseHeaders(), errorObj["message"].ToString(), false, int.Parse(errorObj["code"].ToString()), null));
             }
             else
             {
                 if (OnComplete != null)
-                    OnComplete(new Response("success", true, (int)webReqOp.webRequest.responseCode, webReqOp.webRequest.downloadHandler.text));
+                    OnComplete(new Response(webReqOp.webRequest.GetResponseHeaders(), "success", true, (int)webReqOp.webRequest.responseCode, webReqOp.webRequest.downloadHandler.text));
             }
         }
     }

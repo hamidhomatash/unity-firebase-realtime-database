@@ -82,7 +82,7 @@ namespace FirebaseREST
             };
             
             if (FirebaseAuth.Instance.IsSignedIn) {
-                FirebaseAuth.Instance.GetAccessToken(accessToken => {
+                FirebaseAuth.Instance.GetAccessToken(FirebaseAuth.Instance.DefaultTimeout, accessToken => {
                     url = url + "?auth=" + accessToken;
                     sendRequest();
                 });
@@ -499,7 +499,7 @@ namespace FirebaseREST
             return queries;
         }
 
-        public override void GetValueAsync(int timeout, Action<Response<DataSnapshot>> OnComplete)
+        public override void GetValueAsync(int timeout, Action<Response<DataSnapshot>> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             List<string> query = GetQueries();
             string url = this.ReferenceUrl;
@@ -511,18 +511,25 @@ namespace FirebaseREST
             UnityWebRequest webReq = new UnityWebRequest(url, UnityWebRequest.kHttpVerbGET);
             webReq.downloadHandler = new DownloadHandlerBuffer();
             webReq.timeout = timeout;
+            if (requestHeaders != null)
+            { 
+                foreach (var header in requestHeaders)
+                {
+                    webReq.SetRequestHeader(header.Key, header.Value);
+                }
+            }
 
             Action sendRequest = () => {
                 var op = webReq.SendWebRequest();
                 op.completed += (ao) => HandleFirebaseDatabaseResponse(op, res => {
-                    OnComplete?.Invoke(new Response<DataSnapshot>(res.message, res.success, res.code, new FirebaseDataSnapshot(this, Json.Deserialize(res.data))));
+                    OnComplete?.Invoke(new Response<DataSnapshot>(webReq.GetResponseHeaders(), res.message, res.success, res.code, new FirebaseDataSnapshot(this, Json.Deserialize(res.data))));
                 });
             };
 
             if (FirebaseAuth.Instance.IsSignedIn) {
-                FirebaseAuth.Instance.GetAccessToken(accessToken => {
+                FirebaseAuth.Instance.GetAccessToken(timeout, res => {
                     string sign = query == null ? "?" : "&";
-                    webReq.url = webReq.url + sign + "auth=" + accessToken;
+                    webReq.url = webReq.url + sign + "auth=" + res.data.IdToken;
                     sendRequest();
                 });
             } else {
@@ -530,18 +537,55 @@ namespace FirebaseREST
             }
         }
 
-        public void Push(object data, int timeout, Action<Response<string>> OnComplete)
+        public void Transaction(object data, int timeout, Action<Response<DataSnapshot>> OnComplete, Dictionary<string, string> requestHeaders = null)
+		{
+            if(requestHeaders == null)
+			{
+                requestHeaders = new Dictionary<string, string>() { { "X-Firebase-ETag", "true" } };
+            }
+            else if(!requestHeaders.ContainsKey("X-Firebase-ETag"))
+			{
+                requestHeaders.Add("X-Firebase-ETag", "true");
+
+            }
+
+            GetValueAsync(timeout, res =>
+            {
+                Dictionary<string, string> setValueRequestHeaders = null;
+                if (res.success)
+				{
+                    res.headers.TryGetValue("ETag", out string etag);
+
+                    if (!string.IsNullOrEmpty(etag))
+                    {
+                        setValueRequestHeaders = new Dictionary<string, string>()
+                        {
+                            { "if-match", etag }
+                        };
+                    }
+                }
+
+                SetValueAsync(data, timeout, setValueRes =>
+                {
+                    OnComplete?.Invoke(new Response<DataSnapshot>(setValueRequestHeaders, setValueRes.message, setValueRes.success, setValueRes.code, new FirebaseDataSnapshot(this, Json.Deserialize(setValueRes.data))));
+                },
+                setValueRequestHeaders);
+            },
+            requestHeaders);
+        }
+
+        public void Push(object data, int timeout, Action<Response<string>> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             PushFirebaseData(this.ReferenceUrl, Json.Serialize(data), timeout, OnComplete);
         }
 
-        public void SetRawJsonValueAsync(string json, int timeout, Action<Response> OnComplete)
+        public void SetRawJsonValueAsync(string json, int timeout, Action<Response> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             try
             {
                 object data = Json.Deserialize(json);
                 if (data is Dictionary<string, object> || data is List<object>)
-                    WriteFirebaseData(this.ReferenceUrl, json, timeout, "PUT", OnComplete);
+                    WriteFirebaseData(this.ReferenceUrl, json, timeout, "PUT", OnComplete, requestHeaders);
                 else
                     throw new Exception("Not a valid json");
 
@@ -552,12 +596,12 @@ namespace FirebaseREST
             }
         }
 
-        public void SetValueAsync(object data, int timeout, Action<Response> OnComplete)
+        public void SetValueAsync(object data, int timeout, Action<Response> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             try
             {
                 data = Json.Serialize(data);
-                WriteFirebaseData(this.ReferenceUrl, data, timeout, "PUT", OnComplete);
+                WriteFirebaseData(this.ReferenceUrl, data, timeout, "PUT", OnComplete, requestHeaders);
             }
             catch
             {
@@ -565,17 +609,24 @@ namespace FirebaseREST
             }
         }
 
-        public void UpdateChildAsync(Dictionary<string, object> data, int timeout, Action<Response> OnComplete)
+        public void UpdateChildAsync(Dictionary<string, object> data, int timeout, Action<Response> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
-            WriteFirebaseData(this.ReferenceUrl, Json.Serialize(data), timeout, "PATCH", OnComplete);
+            WriteFirebaseData(this.ReferenceUrl, Json.Serialize(data), timeout, "PATCH", OnComplete, requestHeaders);
         }
 
-        public void RemoveValueAsync(int timeout, Action<Response> OnComplete)
+        public void RemoveValueAsync(int timeout, Action<Response> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             UnityWebRequest webReq = new UnityWebRequest(this.ReferenceUrl, "DELETE");
             webReq.downloadHandler = new DownloadHandlerBuffer();
-            webReq.SetRequestHeader("Content-Type", "application/json");
             webReq.timeout = timeout;
+            webReq.SetRequestHeader("Content-Type", "application/json");
+            if (requestHeaders != null)
+            {
+                foreach (var header in requestHeaders)
+                {
+                    webReq.SetRequestHeader(header.Key, header.Value);
+                }
+            }
 
             Action sendRequest = () => {
                 var op = webReq.SendWebRequest();
@@ -583,8 +634,8 @@ namespace FirebaseREST
             };
 
             if (FirebaseAuth.Instance.IsSignedIn) {
-                FirebaseAuth.Instance.GetAccessToken((accessToken) => {
-                    webReq.url = webReq.url + "?auth=" + accessToken;
+                FirebaseAuth.Instance.GetAccessToken(timeout, res => {
+                    webReq.url = webReq.url + "?auth=" + res.data.IdToken;
                     sendRequest();
                 });
             } else {
@@ -592,14 +643,21 @@ namespace FirebaseREST
             }
         }
 
-        void PushFirebaseData(string dbpath, string rawData, int timeout, Action<Response<string>> OnComplete)
+        void PushFirebaseData(string dbpath, string rawData, int timeout, Action<Response<string>> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             UnityWebRequest webReq = new UnityWebRequest(this.ReferenceUrl, "POST");
             webReq.downloadHandler = new DownloadHandlerBuffer();
             byte[] bodyRaw = Encoding.UTF8.GetBytes(rawData);
             webReq.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            webReq.SetRequestHeader("Content-Type", "application/json");
             webReq.timeout = timeout;
+            webReq.SetRequestHeader("Content-Type", "application/json");
+            if (requestHeaders != null)
+            {
+                foreach (var header in requestHeaders)
+                {
+                    webReq.SetRequestHeader(header.Key, header.Value);
+                }
+            }
 
             Action sendRequest = () => {
                 var op = webReq.SendWebRequest();
@@ -609,13 +667,13 @@ namespace FirebaseREST
                         Dictionary<string, object> data = Json.Deserialize(res.data) as Dictionary<string, object>;
                         pushedId = data["name"].ToString();
                     }
-                    OnComplete?.Invoke(new Response<string>(res.message, res.success, res.code, pushedId));
+                    OnComplete?.Invoke(new Response<string>(webReq.GetResponseHeaders(), res.message, res.success, res.code, pushedId));
                 });
             };
 
             if (FirebaseAuth.Instance.IsSignedIn) {
-                FirebaseAuth.Instance.GetAccessToken(accessToken => {
-                    webReq.url = webReq.url + "?auth=" + accessToken;
+                FirebaseAuth.Instance.GetAccessToken(timeout, res => {
+                    webReq.url = webReq.url + "?auth=" + res.data.IdToken;
                     sendRequest();
                 });
             } else {
@@ -623,14 +681,21 @@ namespace FirebaseREST
             }
         }
 
-        void WriteFirebaseData(string dbpath, object data, int timeout, string requestMethod, Action<Response> OnComplete)
+        void WriteFirebaseData(string dbpath, object data, int timeout, string requestMethod, Action<Response> OnComplete, Dictionary<string, string> requestHeaders = null)
         {
             UnityWebRequest webReq = new UnityWebRequest(this.ReferenceUrl, requestMethod);
             webReq.downloadHandler = new DownloadHandlerBuffer();
             byte[] bodyRaw = Encoding.UTF8.GetBytes(data.ToString());
             webReq.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            webReq.SetRequestHeader("Content-Type", "application/json");
             webReq.timeout = timeout;
+            webReq.SetRequestHeader("Content-Type", "application/json");
+            if (requestHeaders != null)
+            {
+                foreach (var header in requestHeaders)
+                {
+                    webReq.SetRequestHeader(header.Key, header.Value);
+                }
+            }
 
             Action sendRequest = () => {
                 var op = webReq.SendWebRequest();
@@ -638,8 +703,8 @@ namespace FirebaseREST
             };
 
             if (FirebaseAuth.Instance.IsSignedIn) {
-                FirebaseAuth.Instance.GetAccessToken((accessToken) => {
-                    webReq.url = webReq.url + "?auth=" + accessToken;
+                FirebaseAuth.Instance.GetAccessToken(timeout, res => {
+                    webReq.url = webReq.url + "?auth=" + res.data.IdToken;
                     sendRequest();
                 });
             } else {
@@ -647,25 +712,31 @@ namespace FirebaseREST
             }
         }
 
-        void HandleFirebaseDatabaseResponse(UnityWebRequestAsyncOperation webReqOp, Action<Response> OnComplete)
+        public void HandleFirebaseDatabaseResponse(UnityWebRequestAsyncOperation webReqOp, Action<Response> OnComplete)
         {
             if (webReqOp.webRequest.isNetworkError)
             {
-                if (OnComplete != null)
-                    OnComplete(new Response(webReqOp.webRequest.error, false, 0, null));
-            }
+				OnComplete?.Invoke(new Response(webReqOp.webRequest.GetResponseHeaders(), webReqOp.webRequest.error, false, 0, null));
+			}
             else if (webReqOp.webRequest.isHttpError)
             {
                 if (OnComplete != null)
                 {
                     Dictionary<string, object> res = Json.Deserialize(webReqOp.webRequest.downloadHandler.text) as Dictionary<string, object>;
-                    OnComplete(new Response(res["error"].ToString(), false, (int)webReqOp.webRequest.responseCode, null));
+                    if (res != null)
+                    {
+                        OnComplete(new Response(webReqOp.webRequest.GetResponseHeaders(), res["error"].ToString(), false, (int)webReqOp.webRequest.responseCode, null));
+                    }
+                    else
+					{
+                        OnComplete(new Response(webReqOp.webRequest.GetResponseHeaders(), webReqOp.webRequest.error, false, (int)webReqOp.webRequest.responseCode, null));
+                    }
                 }
             }
             else
             {
-                if (OnComplete != null)
-                    OnComplete(new Response("success", true, (int)ResponseCode.SUCCESS, webReqOp.webRequest.downloadHandler.text));
+                //foreach (var rs in webReqOp.webRequest.GetResponseHeaders()) { Debug.Log("HEADERS: " + rs.Key + "   " + rs.Value); }
+                OnComplete?.Invoke(new Response(webReqOp.webRequest.GetResponseHeaders(), "success", true, (int)ResponseCode.SUCCESS, webReqOp.webRequest.downloadHandler.text));
             }
         }
 
