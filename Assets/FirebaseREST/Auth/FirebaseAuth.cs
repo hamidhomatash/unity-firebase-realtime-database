@@ -90,9 +90,11 @@ namespace FirebaseREST
         {
             if (tokenData == null)
                 throw new Exception("User has not logged in");
-            UnityWebRequestAsyncOperation op = StartRequest(USER_INFO_URL, "POST", new Dictionary<string, object>(){
-            {"idToken",tokenData.IdToken}
-        }, timeout);
+            UnityWebRequestAsyncOperation op = StartRequest(USER_INFO_URL, "POST", new Dictionary<string, object>()
+            {
+                { "idToken", tokenData.IdToken }
+            },
+            timeout);
             op.completed += ((ao) => HandleFirebaseResponse(op, (res) =>
             {
                 if (res.success)
@@ -145,9 +147,12 @@ namespace FirebaseREST
         {
             if (tokenData == null)
                 throw new Exception("User has not logged in");
-            UnityWebRequestAsyncOperation op = StartRequest(REFRESH_TOKEN_URL, "POST", new Dictionary<string, object>(){
-            {"grant_type","refresh_token"},{"refresh_token",tokenData.RefreshToken}
-        }, timeout);
+            UnityWebRequestAsyncOperation op = StartRequest(REFRESH_TOKEN_URL, "POST", new Dictionary<string, object>()
+            {
+                { "grant_type", "refresh_token" },
+                { "refresh_token", tokenData.RefreshToken}
+            },
+            timeout);
             op.completed += ((ao) => HandleFirebaseResponse(op, (res) =>
             {
                 if (res.success)

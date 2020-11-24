@@ -89,7 +89,7 @@ public class ExampleScene : MonoBehaviour
                         string.IsNullOrEmpty(dataIF.text)) return;
 
                     DatabaseReference dbref = FirebaseDatabase.Instance.GetReference(pathIF.text);
-                    dbref.Transaction(dataIF.text, 10, null);
+                    dbref.Transaction(int.Parse(dataIF.text), 10, null, (data) => { data.outputData = data.inputData + data.dbDataAsInt; });
                 }
                 break;
             case "delete":

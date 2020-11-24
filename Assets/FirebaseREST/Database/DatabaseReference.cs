@@ -537,7 +537,81 @@ namespace FirebaseREST
             }
         }
 
-        public void Transaction(object data, int timeout, Action<Response<DataSnapshot>> OnComplete, Dictionary<string, string> requestHeaders = null)
+        public void TransactionAdd(int data, int timeout, Action<Response<DataSnapshot>> OnComplete, Dictionary<string, string> requestHeaders = null)
+        {
+            if (requestHeaders == null)
+            {
+                requestHeaders = new Dictionary<string, string>() { { "X-Firebase-ETag", "true" } };
+            }
+            else if (!requestHeaders.ContainsKey("X-Firebase-ETag"))
+            {
+                requestHeaders.Add("X-Firebase-ETag", "true");
+
+            }
+
+            GetValueAsync(timeout, res =>
+            {
+                Dictionary<string, string> setValueRequestHeaders = null;
+                if (res.success)
+                {
+                    res.headers.TryGetValue("ETag", out string etag);
+
+                    if (!string.IsNullOrEmpty(etag))
+                    {
+                        setValueRequestHeaders = new Dictionary<string, string>()
+                        {
+                            { "if-match", etag }
+                        };
+                    }
+                }
+                
+                data += int.Parse(res.data.Value.ToString());
+
+                SetValueAsync(data, timeout, setValueRes =>
+                {
+                    OnComplete?.Invoke(new Response<DataSnapshot>(setValueRequestHeaders, setValueRes.message, setValueRes.success, setValueRes.code, new FirebaseDataSnapshot(this, Json.Deserialize(setValueRes.data))));
+                },
+                setValueRequestHeaders);
+            },
+            requestHeaders);
+        }
+
+        public class OnChangeData<T>
+        {
+            public readonly T inputData;
+            public readonly object dbData;
+            public T outputData;
+
+            public OnChangeData(T inputData, object dbData)
+			{
+                this.inputData = inputData;
+                this.dbData = dbData;
+			}
+
+            public int dbDataAsInt
+			{
+                get
+				{
+                    return int.Parse(dbData.ToString());
+				}
+			}
+            public float dbDataAsfloat
+            {
+                get
+                {
+                    return float.Parse(dbData.ToString());
+                }
+            }
+            public string dbDataAsString
+            {
+                get
+                {
+                    return dbData.ToString();
+                }
+            }
+        }
+
+        public void Transaction<T>(T data, int timeout, Action<Response<DataSnapshot>> OnComplete, Action<OnChangeData<T>> OnChange = null, Dictionary<string, string> requestHeaders = null)
 		{
             if(requestHeaders == null)
 			{
@@ -565,7 +639,10 @@ namespace FirebaseREST
                     }
                 }
 
-                SetValueAsync(data, timeout, setValueRes =>
+                var onChangeData = new OnChangeData<T>(data, res.data.Value);
+                OnChange?.Invoke(onChangeData);
+
+                SetValueAsync(onChangeData.outputData, timeout, setValueRes =>
                 {
                     OnComplete?.Invoke(new Response<DataSnapshot>(setValueRequestHeaders, setValueRes.message, setValueRes.success, setValueRes.code, new FirebaseDataSnapshot(this, Json.Deserialize(setValueRes.data))));
                 },
