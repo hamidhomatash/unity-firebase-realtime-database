@@ -540,6 +540,8 @@ namespace FirebaseREST
         public class OnChangeData<T>
         {
             public readonly T inputData;
+
+            /// <summary>If the path does not exist then this can be null which is valid</summary>
             public readonly object dbData;
             public T outputData;
 
@@ -553,21 +555,21 @@ namespace FirebaseREST
 			{
                 get
 				{
-                    return int.Parse(dbData.ToString());
+                    return dbData != null ? int.Parse(dbData.ToString()) : 0;
 				}
 			}
             public float dbDataAsfloat
             {
                 get
                 {
-                    return float.Parse(dbData.ToString());
+                    return dbData!= null ? float.Parse(dbData.ToString()) : 0.0f;
                 }
             }
             public string dbDataAsString
             {
                 get
                 {
-                    return dbData.ToString();
+                    return dbData?.ToString();
                 }
             }
         }
