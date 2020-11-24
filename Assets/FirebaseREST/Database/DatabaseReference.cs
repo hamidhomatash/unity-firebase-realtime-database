@@ -537,45 +537,6 @@ namespace FirebaseREST
             }
         }
 
-        public void TransactionAdd(int data, int timeout, Action<Response<DataSnapshot>> OnComplete, Dictionary<string, string> requestHeaders = null)
-        {
-            if (requestHeaders == null)
-            {
-                requestHeaders = new Dictionary<string, string>() { { "X-Firebase-ETag", "true" } };
-            }
-            else if (!requestHeaders.ContainsKey("X-Firebase-ETag"))
-            {
-                requestHeaders.Add("X-Firebase-ETag", "true");
-
-            }
-
-            GetValueAsync(timeout, res =>
-            {
-                Dictionary<string, string> setValueRequestHeaders = null;
-                if (res.success)
-                {
-                    res.headers.TryGetValue("ETag", out string etag);
-
-                    if (!string.IsNullOrEmpty(etag))
-                    {
-                        setValueRequestHeaders = new Dictionary<string, string>()
-                        {
-                            { "if-match", etag }
-                        };
-                    }
-                }
-                
-                data += int.Parse(res.data.Value.ToString());
-
-                SetValueAsync(data, timeout, setValueRes =>
-                {
-                    OnComplete?.Invoke(new Response<DataSnapshot>(setValueRequestHeaders, setValueRes.message, setValueRes.success, setValueRes.code, new FirebaseDataSnapshot(this, Json.Deserialize(setValueRes.data))));
-                },
-                setValueRequestHeaders);
-            },
-            requestHeaders);
-        }
-
         public class OnChangeData<T>
         {
             public readonly T inputData;
